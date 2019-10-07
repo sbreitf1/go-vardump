@@ -62,13 +62,18 @@ func visitSlice(obj interface{}, visitor Visitor, obscure bool) error {
 	return nil
 }
 
+type fieldMetaData struct {
+	Index     int
+	FieldName string
+	Obscure   bool
+}
+
 func visitStruct(obj interface{}, visitor Visitor, obscure bool) error {
+	fields := make([]fieldMetaData, 0)
+
 	t := reflect.TypeOf(obj)
-	v := reflect.ValueOf(obj)
-	fieldCount := t.NumField()
-	//TODO estimate correct field count -> ignored struct fields
-	visitor.BeginStruct(fieldCount)
-	for i := 0; i < fieldCount; i++ {
+	totalFieldCount := t.NumField()
+	for i := 0; i < totalFieldCount; i++ {
 		f := t.Field(i)
 		fieldName := f.Name
 		childObscure := obscure
@@ -89,8 +94,14 @@ func visitStruct(obj interface{}, visitor Visitor, obscure bool) error {
 			}
 		}
 
-		visitor.StructValueName(i, fieldName)
-		if err := visit(v.Field(i).Interface(), visitor, childObscure); err != nil {
+		fields = append(fields, fieldMetaData{i, fieldName, childObscure})
+	}
+
+	v := reflect.ValueOf(obj)
+	visitor.BeginStruct(len(fields))
+	for i, f := range fields {
+		visitor.StructValueName(i, f.FieldName)
+		if err := visit(v.Field(f.Index).Interface(), visitor, f.Obscure); err != nil {
 			return err
 		}
 	}
