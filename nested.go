@@ -2,132 +2,101 @@ package vardump
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 )
 
 // NestedStringOptions defines options to format nested printing.
 type NestedStringOptions struct {
-	Pointer                                                               string
-	Indentation                                                           string
-	BeginStruct, EndStruct, StructNameValueSeparator, StructItemSeparator string
-	BeginArray, EndArray, ArraySeparator                                  string
-	BreakEnumerationOnLen                                                 int
-	BreakEnumerationItems                                                 bool
-	True, False                                                           string
-	QuoteStructNames, QuoteStringValues                                   bool
-	FallbackFormatString                                                  string
+	LinePrefix                                                    string
+	Pointer                                                       string
+	Indentation                                                   string
+	BeginStruct, EndStruct, StructNameFormat, StructItemSeparator string
+	QuoteStructNames                                              bool
+	BeginArray, EndArray, ArrayIndexFormat, ArrayElementSeparator string
+	BreakEnumerationOnLen                                         int
+	BreakEnumerationItems                                         bool
+	BaseTypeOptions                                               *BaseTypeOptions
 }
 
 // DefaultNestedStringOptions returns the default nested string options for a JSON-like representation.
 func DefaultNestedStringOptions() *NestedStringOptions {
 	return &NestedStringOptions{
+		LinePrefix:  "",
 		Pointer:     "",
 		Indentation: "  ",
-		BeginStruct: "{", EndStruct: "}", StructNameValueSeparator: ": ", StructItemSeparator: ",",
-		BeginArray: "[", EndArray: "]", ArraySeparator: ",",
+		BeginStruct: "{", EndStruct: "}", StructNameFormat: "%q: ", StructItemSeparator: ",",
+		QuoteStructNames: true,
+		BeginArray:       "[", EndArray: "]", ArrayIndexFormat: "", ArrayElementSeparator: ",",
 		BreakEnumerationOnLen: 1, BreakEnumerationItems: true,
-		True: "true", False: "false",
-		QuoteStructNames: true, QuoteStringValues: true,
-		FallbackFormatString: "<%T>",
+		BaseTypeOptions: DefaultBaseTypeOptions(),
 	}
 }
 
 type nestedStringVisitor struct {
-	options  *NestedStringOptions
-	sb       strings.Builder
-	enumLens *intStack
+	options        *NestedStringOptions
+	enumLens       *intStack
+	hierarchy      *stack
+	sb             *stringBuilder
+	requireNewLine bool
 }
 
 func (v *nestedStringVisitor) Pointer() {
-	v.append(v.options.Pointer)
+	v.sb.Append(v.options.Pointer)
 }
 func (v *nestedStringVisitor) Value(value interface{}) {
-	switch val := value.(type) {
-	case bool:
-		if val {
-			v.append(v.options.True)
-		} else {
-			v.append(v.options.False)
-		}
-
-	case byte:
-		v.append(strconv.Itoa(int(val)))
-	case int:
-		v.append(strconv.Itoa(val))
-	case int64:
-		v.append(strconv.FormatInt(val, 10))
-
-	case string:
-		v.append(condQuote(val, v.options.QuoteStringValues))
-	case fmt.Stringer:
-		v.append(condQuote(val.String(), v.options.QuoteStringValues))
-
-	default:
-		v.append(fmt.Sprintf(v.options.FallbackFormatString, val))
-	}
+	v.sb.AppendValue(value)
 }
 func (v *nestedStringVisitor) BeginStruct(size int) {
-	v.append(v.options.BeginStruct)
-	v.enumLens.Push(size)
-	if size >= v.options.BreakEnumerationOnLen {
-		v.appendLine()
-	}
+	v.sb.Append(v.options.BeginStruct)
+	v.enterEnum(size)
 }
 func (v *nestedStringVisitor) StructValueName(index int, name string) {
 	if index > 0 {
-		v.append(v.options.StructItemSeparator)
+		v.sb.Append(v.options.StructItemSeparator)
 		if v.options.BreakEnumerationItems {
-			v.appendLine()
+			v.sb.AppendLine()
 		}
 	}
-	v.append(condQuote(name, v.options.QuoteStructNames))
-	v.append(v.options.StructNameValueSeparator)
+	v.sb.Append(fmt.Sprintf(v.options.StructNameFormat, name))
 }
 func (v *nestedStringVisitor) EndStruct() {
-	size, _ := v.enumLens.Pop()
-	if size >= v.options.BreakEnumerationOnLen {
-		v.appendLine()
-	}
-	v.append(v.options.EndStruct)
+	v.leaveEnum()
+	v.sb.Append(v.options.EndStruct)
 }
 func (v *nestedStringVisitor) BeginArray(size int) {
-	v.append(v.options.BeginArray)
-	v.enumLens.Push(size)
-	if size >= v.options.BreakEnumerationOnLen {
-		v.appendLine()
-	}
+	v.sb.Append(v.options.BeginArray)
+	v.enterEnum(size)
 }
 func (v *nestedStringVisitor) ArrayValueIndex(index int) {
 	if index > 0 {
-		v.append(v.options.ArraySeparator)
+		v.sb.Append(v.options.ArrayElementSeparator)
 		if v.options.BreakEnumerationItems {
-			v.appendLine()
+			v.sb.AppendLine()
 		}
 	}
 }
 func (v *nestedStringVisitor) EndArray() {
+	v.leaveEnum()
+	v.sb.Append(v.options.EndArray)
+}
+
+func (v *nestedStringVisitor) enterEnum(size int) {
+	v.enumLens.Push(size)
+	if size >= v.options.BreakEnumerationOnLen {
+		v.sb.AppendLine()
+	}
+}
+func (v *nestedStringVisitor) leaveEnum() {
 	size, _ := v.enumLens.Pop()
 	if size >= v.options.BreakEnumerationOnLen {
-		v.appendLine()
+		v.sb.AppendLine()
 	}
-	v.append(v.options.EndArray)
 }
 
-func condQuote(str string, quote bool) string {
-	if quote {
-		return fmt.Sprintf("%q", str)
-	}
-	return str
-}
-
-func (v *nestedStringVisitor) append(str string) {
-	v.sb.WriteString(str)
-}
-func (v *nestedStringVisitor) appendLine() {
-	v.sb.WriteString("\n")
+func (v *nestedStringVisitor) printLinePrefix(sb *strings.Builder) {
+	sb.WriteString(v.options.LinePrefix)
 	for i := 0; i < v.enumLens.Count(); i++ {
-		v.sb.WriteString(v.options.Indentation)
+		sb.WriteString(v.options.Indentation)
 	}
 }
 
@@ -140,7 +109,8 @@ func NestedString(obj interface{}, options *NestedStringOptions) (string, error)
 	if options == nil {
 		options = DefaultNestedStringOptions()
 	}
-	visitor := &nestedStringVisitor{options: options, enumLens: newIntStack()}
+	visitor := &nestedStringVisitor{options: options, enumLens: newIntStack(), hierarchy: newStack()}
+	visitor.sb = newStringBuilder(visitor.printLinePrefix, options.BaseTypeOptions)
 	if err := visit(obj, visitor); err != nil {
 		return "", err
 	}
