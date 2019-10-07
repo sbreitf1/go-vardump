@@ -81,3 +81,41 @@ func (s *intStack) Array() []int {
 func (s *intStack) Count() int {
 	return s.s.Count()
 }
+
+type stringStack struct {
+	s *stack
+}
+
+func newStringStack() *stringStack {
+	return &stringStack{newStack()}
+}
+
+func (s *stringStack) Push(val string) {
+	s.s.Push(val)
+}
+
+func (s *stringStack) Pop() (string, bool) {
+	val, ok := s.s.Pop()
+	if ok {
+		return val.(string), true
+	}
+
+	return "", false
+}
+
+func (s *stringStack) Swap(val string) bool {
+	return s.s.Swap(val)
+}
+
+func (s *stringStack) Array() []string {
+	arr := s.s.Array()
+	strArr := make([]string, len(arr))
+	for i := range arr {
+		strArr[i] = arr[i].(string)
+	}
+	return strArr
+}
+
+func (s *stringStack) Count() int {
+	return s.s.Count()
+}

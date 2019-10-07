@@ -43,8 +43,8 @@ type nestedStringVisitor struct {
 func (v *nestedStringVisitor) Pointer() {
 	v.sb.Append(v.options.Pointer)
 }
-func (v *nestedStringVisitor) Value(value interface{}) {
-	v.sb.AppendValue(value)
+func (v *nestedStringVisitor) Value(value interface{}, obscure bool) {
+	v.sb.AppendValue(value, obscure)
 }
 func (v *nestedStringVisitor) BeginStruct(size int) {
 	v.sb.Append(v.options.BeginStruct)
@@ -101,7 +101,7 @@ func (v *nestedStringVisitor) printLinePrefix(sb *strings.Builder) {
 }
 
 func (v *nestedStringVisitor) String() string {
-	return strings.TrimRight(v.sb.String(), "\n")
+	return v.sb.String()
 }
 
 // NestedString returns a nested, JSON-like representation with configurable formatting.
@@ -111,7 +111,7 @@ func NestedString(obj interface{}, options *NestedStringOptions) (string, error)
 	}
 	visitor := &nestedStringVisitor{options: options, enumLens: newIntStack(), hierarchy: newStack()}
 	visitor.sb = newStringBuilder(visitor.printLinePrefix, options.BaseTypeOptions)
-	if err := visit(obj, visitor); err != nil {
+	if err := visit(obj, visitor, ObscureByDefault); err != nil {
 		return "", err
 	}
 	return visitor.String(), nil

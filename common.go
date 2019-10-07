@@ -1,6 +1,8 @@
 package vardump
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -40,7 +42,7 @@ func DefaultBaseTypeOptions() *BaseTypeOptions {
 	}
 }
 
-func (s *stringBuilder) AppendValue(value interface{}) {
+func (s *stringBuilder) AppendValue(value interface{}, obscure bool) {
 	switch val := value.(type) {
 	case bool:
 		if val {
@@ -57,12 +59,23 @@ func (s *stringBuilder) AppendValue(value interface{}) {
 		s.Append(strconv.FormatInt(val, 10))
 
 	case string:
-		s.Append(condQuote(val, s.options.QuoteStringValues))
+		s.appendStringValue(val, obscure)
 	case fmt.Stringer:
-		s.Append(condQuote(val.String(), s.options.QuoteStringValues))
+		s.appendStringValue(val.String(), obscure)
 
 	default:
 		s.Append(fmt.Sprintf(s.options.FallbackFormatString, val))
+	}
+}
+
+func (s *stringBuilder) appendStringValue(val string, obscure bool) {
+	if obscure {
+		hasher := sha256.New()
+		hasher.Write([]byte(val))
+		hash := hasher.Sum(nil)
+		s.Append(hex.EncodeToString(hash))
+	} else {
+		s.Append(condQuote(val, s.options.QuoteStringValues))
 	}
 }
 
@@ -88,10 +101,35 @@ func (s *stringBuilder) Append(str string) {
 	s.builder.WriteString(str)
 }
 func (s *stringBuilder) AppendLine() {
-	// do not print directly but only require -> prevent empty lines
+	// do not print directly but only request for later -> prevent empty lines on double AppendLine() calls
 	s.requireNewLine = true
 }
 
 func (s *stringBuilder) String() string {
 	return s.builder.String()
+}
+
+// PrintNested prints a nested object representation using the default formatter.
+func PrintNested(obj interface{}) {
+	str, err := NestedString(obj, nil)
+	if err != nil {
+		panic(err)
+	}
+	printStr(str)
+}
+
+// PrintFlat prints a flat object representation using the default formatter.
+func PrintFlat(obj interface{}) {
+	str, err := FlatString(obj, nil)
+	if err != nil {
+		panic(err)
+	}
+	printStr(str)
+}
+
+func printStr(str string) {
+	lines := strings.Split(str, "\n")
+	for _, line := range lines {
+		fmt.Println(line)
+	}
 }
